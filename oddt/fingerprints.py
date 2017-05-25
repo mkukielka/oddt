@@ -9,7 +9,7 @@ from oddt.interactions import pi_stacking, pi_cation, \
     hbond_acceptor_donor, salt_bridge_plus_minus, hydrophobic_contacts, acceptor_metal
 
 __all__ = ['InteractionFingerprint',
-           'SimpleInteractionFingerprint', 'dice', 'tc']
+           'SimpleInteractionFingerprint', 'dice', 'tanimoto']
 
 
 def InteractionFingerprint(ligand, protein, strict=True):
