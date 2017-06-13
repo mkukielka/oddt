@@ -25,13 +25,6 @@ __all__ = ['InteractionFingerprint',
            'similarity_SPLIF',
            'ECFP',
            'PLEC',
-           'fold',
-           'MIN_HASH_VALUE',
-           'MAX_HASH_VALUE',
-           'sparse_to_dense',
-           'sparse_to_csr_matrix',
-           'csr_matrix_to_sparse',
-           'dense_to_sparse',
            'dice',
            'tanimoto',
            ]
@@ -230,118 +223,11 @@ def fold(fp, size):
 
 
 def sparse_to_dense(fp, size, count_bits=True):
-    """Converts sparse fingerprint (indices of 'on' bits) to dense (vector of
-    ints).
-
-    Parameters
-    ----------
-    fp : array-like
-        Fingerprint on indices. Can be dupplicated for count vectors.
-
-    size : int
-        The size of a final fingerprint.
-
-    count_bits : bool (default=True)
-        Should the output fingerprint be a count or boolean vector. If `True`
-        the dtype of output is `np.uint8`, otherwise it is bool.
-
-
-    Returns
-    -------
-    fp : np.array  (shape=[1, size])
-        Dense fingerprint in form of a np.array vector.
-    """
-    fp = np.asarray(fp, dtype=np.uint64)
-    if fp.ndim > 1:
-        raise ValueError("Input fingerprint must be a vector (1D)")
+    """Converts sparse fingerprint (consists only 'on' bits)
+    to dense (consists all bits)"""
     sparsed_fp = np.zeros(size, dtype=np.uint8 if count_bits else bool)
     np.add.at(sparsed_fp, fp, 1)
     return sparsed_fp
-
-
-def sparse_to_csr_matrix(fp, size, count_bits=True):
-    """Converts sparse fingerprint (indices of 'on' bits) to
-    `scipy.sparse.csr_matrix`, which is memorty efficient yet supported widely
-    by scikit-learn and numpy/scipy.
-
-    Parameters
-    ----------
-    fp : array-like
-        Fingerprint on indices. Can be dupplicated for count vectors.
-
-    size : int
-        The size of a final fingerprint.
-
-    count_bits : bool (default=True)
-        Should the output fingerprint be a count or boolean vector. If `True`
-        the dtype of output is `np.uint8`, otherwise it is bool.
-
-
-    Returns
-    -------
-    fp : np.array (shape=[1, size])
-        Dense fingerprint in form of a `scipy.sparse.csr_matrix` of shape
-        (1, size).
-    """
-    fp = np.asarray(fp, dtype=np.uint64)
-    if fp.ndim > 1:
-        raise ValueError("Input fingerprint must be a vector (1D)")
-    if count_bits:
-        # TODO numpy 1.9.0 has return_counts
-        cols, inv = np.unique(fp, return_inverse=True)
-        values = np.bincount(inv)
-    else:
-        cols = np.unique(fp)
-        values = np.ones_like(cols)
-    rows = np.zeros_like(cols)
-    return csr_matrix((values, (rows, cols)),
-                      shape=(1, size),
-                      dtype=np.uint8 if count_bits else bool)
-
-
-def dense_to_sparse(fp):
-    """Sparsify a dense fingerprint.
-
-    Parameters
-    ----------
-    fp : array-like
-        Fingerprint in a dense form - numpy array of bools or integers.
-
-    Returns
-    -------
-    fp : np.array
-        Sparse fingerprint - an array of "on" integers. In cas of count vectors,
-        the indices are dupplicated according to count.
-    """
-
-    ix = np.where(fp)[0]
-    if fp.dtype == bool:
-        return ix
-    else:  # count vectors
-        return np.repeat(ix, fp[ix])
-
-
-def csr_matrix_to_sparse(fp):
-    """Sparsify a CSR fingerprint.
-
-    .. versionadded:: 0.6
-
-    Parameters
-    ----------
-    fp : csr_matrix
-        Fingerprint in a CSR form.
-
-    Returns
-    -------
-    fp : np.array
-        Sparse fingerprint - an array of "on" integers. In cas of count vectors,
-        the indices are dupplicated according to count.
-    """
-    if not isspmatrix_csr(fp):
-        raise ValueError('fp is not CSR sparse matrix but %s (%s)' %
-                         (type(fp), fp))
-    # FIXME: change these methods to work for stacked fps (2D)
-    return np.repeat(fp.indices, fp.data)
 
 
 # ranges for hashing function
@@ -705,73 +591,46 @@ def similarity_SPLIF(reference, query, rmsd_cutoff=1.):
 
 
 def PLEC(ligand, protein, depth_ligand=2, depth_protein=4, distance_cutoff=4.5,
-         size=16384, count_bits=True, sparse=True, ignore_hoh=True):
+           size=16384, count_bits=True, sparse=True):
     """Protein ligand extended connectivity fingerprint. For every pair of
-    atoms in contact, compute ECFP and then hash every single, corresponding
-    depth.
+    atoms in contact, compute ECFP and then hash every single, corresponding depth.
 
     Parameters
     ----------
     ligand, protein : oddt.toolkit.Molecule object
             Molecules, which are analysed in order to find interactions.
-
     depth_ligand, depth_protein : int (deafult = (2, 4))
         The depth of the fingerprint, i.e. the number of bonds in Morgan
         algorithm. Note: For ECFP2: depth = 1, ECFP4: depth = 2, etc.
-
     size: int (default = 16384)
         SPLIF is folded to given size.
-
     distance_cutoff: float (default=4.5)
         Cutoff distance for close contacts.
-
     sparse : bool (default = True)
         Should fingerprints be dense (contain all bits) or sparse (just the on
         bits).
-
     count_bits : bool (default = True)
         Should the bits be counted or unique. In dense representation it
         translates to integer array (count_bits=True) or boolean array if False.
 
-    ignore_hoh : bool (default = True)
-        Should the water molecules be ignored. This is based on the name of the
-        residue ('HOH').
-
     Returns
     -------
     PLEC : numpy array
-        fp (size = atoms in contacts * max(depth_protein, depth_ligand))
+        Calculated fp (size = no. of atoms in contacts * max(depth_protein, depth_ligand))
 
     """
     result = []
     # removing h
-    protein_mask = protein_no_h = (protein.atom_dict['atomicnum'] != 1)
-    if ignore_hoh:
-        # a copy is needed, so not modifing inplace
-        protein_mask = protein_mask & (protein.atom_dict['resname'] != 'HOH')
-    protein_dict = protein.atom_dict[protein_mask]
+    protein_dict = protein.atom_dict[protein.atom_dict['atomicnum'] != 1]
     ligand_dict = ligand.atom_dict[ligand.atom_dict['atomicnum'] != 1]
 
     # atoms in contact
     protein_atoms, ligand_atoms = close_contacts(
         protein_dict, ligand_dict, cutoff=distance_cutoff)
 
-    lig_atom_repr = {aidx: _ECFP_atom_repr(ligand, aidx)
-                     for aidx in ligand_dict['id'].tolist()}
-    # HOH residues might be connected to metal atoms
-    prot_atom_repr = {aidx: _ECFP_atom_repr(protein, aidx)
-                      for aidx in protein.atom_dict[protein_no_h]['id'].tolist()}
-
-    for ligand_atom, protein_atom in zip(ligand_atoms['id'].tolist(),
-                                         protein_atoms['id'].tolist()):
-        ligand_ecfp = _ECFP_atom_hash(ligand,
-                                      ligand_atom,
-                                      depth=depth_ligand,
-                                      atom_repr_dict=lig_atom_repr)
-        protein_ecfp = _ECFP_atom_hash(protein,
-                                       protein_atom,
-                                       depth=depth_protein,
-                                       atom_repr_dict=prot_atom_repr)
+    for ligand_atom, protein_atom in zip(ligand_atoms, protein_atoms):
+        ligand_ecfp = _ECFP_atom_hash(ligand, int(ligand_atom['id']), depth=depth_ligand)
+        protein_ecfp = _ECFP_atom_hash(protein, int(protein_atom['id']), depth=depth_protein)
         assert len(ligand_ecfp) == depth_ligand + 1
         assert len(protein_ecfp) == depth_protein + 1
         # fillvalue is parameter from zip_longest
