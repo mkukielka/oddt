@@ -3,11 +3,11 @@
 Universal and easy to use resource for various drug discovery tasks,
 ie docking, virutal screening, rescoring.
 
-    Attributes
-    ----------
-    toolkit : module,
-        Toolkits backend module, currenlty OpenBabel [ob] and RDKit [rdk].
-        This setting is toolkit-wide, and sets given toolkit as default
+Attributes
+----------
+toolkit : module,
+    Toolkits backend module, currenlty OpenBabel [ob] and RDKit [rdk].
+    This setting is toolkit-wide, and sets given toolkit as default
 """
 from __future__ import absolute_import
 import os
@@ -53,7 +53,7 @@ else:
 def get_version():
     home = os.path.dirname(__file__)
     git_v = None
-    v = '0.4.1'
+    v = '0.5'
     if os.path.isdir(home + '/../.git'):
         try:
             git_v = subprocess.check_output(['git',

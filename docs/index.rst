@@ -17,11 +17,11 @@ Requirements
 * Python 2.7+ or 3.4+
 * OpenBabel (2.3.2+) or/and RDKit (2016.03)
 * Numpy (1.8+)
-* Scipy (0.13+)
+* Scipy (0.14+)
 * Sklearn (0.18+)
 * joblib (0.8+)
-* pandas (0.13+)
-* Skimage (0.10+)
+* pandas (0.17.1+)
+* Skimage (0.10+) (optional, only for surface generation)
 
 .. note:: All installation methods assume that one of toolkits is installed. For detailed installation procedure visit toolkit’s website (OpenBabel, RDKit)
 
@@ -41,9 +41,9 @@ Finally you can install ODDT straight from the source
 
 .. code-block:: bash
 
-    wget https://github.com/oddt/oddt/archive/0.4.1.tar.gz
-    tar zxvf 0.4.1.tar.gz
-    cd oddt-0.4.1/
+    wget https://github.com/oddt/oddt/archive/0.5.tar.gz
+    tar zxvf 0.5.tar.gz
+    cd oddt-0.5/
     python setup.py install
 
 Common installation problems
@@ -55,7 +55,7 @@ Usage Instructions
 Toolkits
 --------
 
-You can use any supported toolkit united under common API (for reference see `Pybel <https://open-babel.readthedocs.org/en/latest/UseTheLibrary/Python_Pybel.html>`_ or `Cinfony <https://code.google.com/p/cinfony/>`_). All methods and software which based on Pybel/Cinfony should be drop in compatible with ODDT toolkits. In contrast to it’s predecessors, which were aimed to have minimalistic API, ODDT introduces extended methods and additional handles. This extensions allow to use toolkits at all it’s grace and some features may be backported from others to introduce missing functionalities.
+You can use any supported toolkit united under common API (for reference see `Pybel <https://open-babel.readthedocs.org/en/latest/UseTheLibrary/Python_Pybel.html>`_ or `Cinfony <https://code.google.com/p/cinfony/>`_). All methods and software which based on Pybel/Cinfony should be drop in compatible with ODDT toolkits. In contrast to its predecessors, which were aimed to have minimalistic API, ODDT introduces extended methods and additional handles. This extensions allow to use toolkits at all its grace and some features may be backported from others to introduce missing functionalities.
 To name a few:
 
 * coordinates are returned as Numpy Arrays
@@ -75,7 +75,7 @@ One of the most common operation would be iterating through molecules atoms
 
 .. code-block:: Python
 
-    mol = oddt.toolkit.readstring(‘smi’, ‘c1cccc1’)
+    mol = oddt.toolkit.readstring('smi', 'c1cccc1')
     for atom in mol:
         print(atom.idx)
 
@@ -114,14 +114,14 @@ Reading from file
 
 .. code-block:: python
 
-    for mol in oddt.toolkit.readfile(‘smi’, ‘test.smi’):
+    for mol in oddt.toolkit.readfile('smi', 'test.smi'):
         print(mol.title)
 
 Reading from string
 
 .. code-block:: python
 
-    mol = oddt.toolkit.readstring(‘smi’, ‘c1ccccc1 benzene’):
+    mol = oddt.toolkit.readstring('smi', 'c1ccccc1 benzene'):
         print(mol.title)
 
 .. note:: You can force molecules to be read in asynchronously, aka “lazy molecules”. Current default is not to produce lazy molecules due to OpenBabel’s Memory Leaks in OBConverter. Main advantage of lazy molecules is using them in multiprocessing, then conversion is spreaded on all jobs.
@@ -130,7 +130,7 @@ Reading molecules from file in asynchronous manner
 
 .. code-block:: python
 
-    for mol in oddt.toolkit.readfile(‘smi’, ‘test.smi’, lazy=True):
+    for mol in oddt.toolkit.readfile('smi', 'test.smi', lazy=True):
         pass
 
 This example will execute instantaneously, since no molecules were evaluated.
@@ -158,6 +158,7 @@ Atom basic information
 Residue information for current atom
 
 * '*resid*', type: ``int16`` - residue ID
+* '*resnumber*', type: ``int16`` - residue number
 * '*resname*', type: ``a3`` - Residue name (3 letters)
 * '*isbackbone*', type: ``bool`` - is atom part of backbone
 
@@ -191,6 +192,7 @@ res_dict
 --------
 
 * '*id*', type: ``int16`` - residue ID
+* '*resnumber*', type: ``int16`` - residue number
 * '*resname*', type: ``a3`` - Residue name (3 letters)
 * '*N*', type: ``float32``, shape: 3 - cordinates of backbone N atom
 * '*CA*', type: ``float32``, shape: 3 - cordinates of backbone CA atom
@@ -205,7 +207,7 @@ Get all acceptor atoms:
 
 .. code-block:: python
 
-    mol.atom_dict[‘is_acceptor’]
+    mol.atom_dict['isacceptor']
 
 
 Interaction Fingerprints
@@ -233,7 +235,7 @@ File with more than one molecule
 
 When files are loaded, You can check interactions between molecules. Let's find out, which amino acids creates hydrogen bonds
 ::
-  protein_atoms, ligand_atoms, strict = hbond(protein, ligand)
+  protein_atoms, ligand_atoms, strict = hbonds(protein, ligand)
   print(protein_atoms['resname'])
 
 Or check hydrophobic contacts between molecules

@@ -1,19 +1,21 @@
 import os
+from distutils.version import LooseVersion
+
+import numpy as np
+import pytest
+from numpy.testing import assert_array_equal
+from skimage import __version__ as skimage_version
 
 import oddt
 from oddt.surface import (generate_surface_marching_cubes,
                           find_surface_residues)
-from sklearn.utils.testing import (assert_array_equal,
-                                   assert_equal)
-from nose.tools import assert_raises
-import numpy as np
-from skimage import __version__ as skimageversion
 
 test_data_dir = os.path.dirname(os.path.abspath(__file__))
 protein = next(oddt.toolkit.readfile('pdb', os.path.join(
     test_data_dir, 'data/dude/xiap/receptor_rdkit.pdb')))
 protein.protein = True
 protein.addh(only_polar=True)
+
 
 def test_generate_surface_marching_cubes():
     """Tests generating surfaces"""
@@ -28,7 +30,7 @@ def test_generate_surface_marching_cubes():
 
     # versions of skimage older than 0.12 use a slightly different version of the marching cubes algorithm
     # producing slightly different results
-    if float(skimageversion.rsplit('.', 1)[0]) >= 0.13:
+    if LooseVersion(skimage_version) >= LooseVersion('0.13'):
         if oddt.toolkit.backend == 'ob':
             ref_vert_shape_1 = (9040, 3)
             ref_face_shape_1 = (18094, 3)
@@ -67,21 +69,25 @@ def test_generate_surface_marching_cubes():
             ref_vert_shape_4 = (10243, 3)
             ref_face_shape_4 = (21686, 3)
 
-    assert_equal(ref_vert_shape_1, verts1.shape)
-    assert_equal(ref_face_shape_1, faces1.shape)
+    assert ref_vert_shape_1 == verts1.shape
+    assert ref_face_shape_1 == faces1.shape
 
-    assert_equal(ref_vert_shape_2, verts2.shape)
-    assert_equal(ref_face_shape_2, faces2.shape)
+    assert ref_vert_shape_2 == verts2.shape
+    assert ref_face_shape_2 == faces2.shape
 
-    assert_equal(ref_vert_shape_3, verts3.shape)
-    assert_equal(ref_face_shape_3, faces3.shape)
+    assert ref_vert_shape_3 == verts3.shape
+    assert ref_face_shape_3 == faces3.shape
 
-    assert_equal(ref_vert_shape_4, verts4.shape)
-    assert_equal(ref_face_shape_4, faces4.shape)
+    assert ref_vert_shape_4 == verts4.shape
+    assert ref_face_shape_4 == faces4.shape
 
-    assert_raises(TypeError, generate_surface_marching_cubes, molecule=1)
-    assert_raises(ValueError, generate_surface_marching_cubes, molecule=protein, probe_radius=-1)
-    assert_raises(ValueError, generate_surface_marching_cubes, molecule=protein, scaling=0.1)
+    with pytest.raises(TypeError):
+        generate_surface_marching_cubes(molecule=1)
+    with pytest.raises(ValueError):
+        generate_surface_marching_cubes(molecule=protein, probe_radius=-1)
+    with pytest.raises(ValueError):
+        generate_surface_marching_cubes(molecule=protein, scaling=0.1)
+
 
 def test_find_surface_residues():
     """Tests finding residues on the surface"""
@@ -91,7 +97,7 @@ def test_find_surface_residues():
     atom_dict_3 = find_surface_residues(protein, max_dist=None, scaling=1)
     atom_dict_4 = find_surface_residues(protein, max_dist=None, scaling=2)
 
-    assert_equal(atom_dict_0.size, 0)
+    assert atom_dict_0.size == 0
     assert len(atom_dict_1) > len(atom_dict_0), ('Increasing max_dist should '
                                                  'result in more/equal number '
                                                  'of atoms found')
@@ -112,16 +118,19 @@ def test_find_surface_residues():
         ref_len_3 = 735
         ref_len_4 = 489
 
-    assert_equal(len(atom_dict_1), ref_len_1)
-    assert_equal(len(atom_dict_2), ref_len_2)
-    assert_equal(len(atom_dict_3), ref_len_3)
-    assert_equal(len(atom_dict_4), ref_len_4)
+    assert len(atom_dict_1) == ref_len_1
+    assert len(atom_dict_2) == ref_len_2
+    assert len(atom_dict_3) == ref_len_3
+    assert len(atom_dict_4) == ref_len_4
 
     # Adding hydrogen atoms should have no effect on the result
     protein.addh()
     atom_dict_addh = find_surface_residues(protein, max_dist=2, scaling=1)
     assert_array_equal(atom_dict_addh['id'], atom_dict_1['id'])
 
-    assert_raises(TypeError, find_surface_residues, molecule=1)
-    assert_raises(ValueError, find_surface_residues, molecule=protein, max_dist='a')
-    assert_raises(ValueError, find_surface_residues, molecule=protein, max_dist=[1, 1, 1])
+    with pytest.raises(TypeError):
+        find_surface_residues(molecule=1)
+    with pytest.raises(ValueError):
+        find_surface_residues(molecule=protein, max_dist='a')
+    with pytest.raises(ValueError):
+        find_surface_residues(molecule=protein, max_dist=[1, 1, 1])

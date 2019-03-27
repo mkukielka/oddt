@@ -1,17 +1,12 @@
 import os
-from tempfile import NamedTemporaryFile
 
-import numpy as np
-
-from nose.tools import nottest
-from nose.tools import assert_in, assert_not_in, assert_equal
-from sklearn.utils.testing import (assert_true,
-                                   assert_array_equal,
-                                   assert_array_almost_equal)
+from numpy.testing import assert_array_equal, assert_array_almost_equal
+import pytest
 
 import oddt
 from oddt.interactions import (close_contacts,
                                hbonds,
+                               distance,
                                halogenbonds,
                                pi_stacking,
                                salt_bridges,
@@ -42,7 +37,7 @@ def test_close_contacts():
                         6, 2, 6, 5, 1, 8, 6, 5, 7, 4])
 
 
-@nottest
+@pytest.mark.skip
 def test_hbonds():
     """H-Bonds test"""
     hbonds_count = [hbonds(rec, mol)[2].sum() for mol in mols]
@@ -55,7 +50,7 @@ def test_hbonds():
                         6, 5, 5, 7, 7, 6, 8, 6, 4, 5])
 
 
-@nottest
+@pytest.mark.skip
 def test_halogenbonds():
     """Halogen-Bonds test"""
     halogenbonds_count = [len(halogenbonds(rec, mol)[2]) for mol in mols]
@@ -64,25 +59,73 @@ def test_halogenbonds():
                        [])
 
 
-@nottest
 def test_pi_stacking():
     """Pi-stacking test"""
-    pi_parallel_count = [pi_stacking(rec,
-                                     mol,
-                                     cutoff=8)[2].sum() for mol in mols]
-    print(pi_parallel_count)
-    # assert_array_equal(pi_parallel_count,
-    #                    [])
+    lig = next(oddt.toolkit.readfile('sdf', os.path.join(test_data_dir, 'data',
+                                                         'pdbbind', '10gs',
+                                                         '10gs_ligand.sdf')))
+    rec = next(oddt.toolkit.readfile('pdb', os.path.join(test_data_dir, 'data',
+                                                         'pdbbind', '10gs',
+                                                         '10gs_pocket.pdb')))
+    rec.protein = True
+    ring, _, strict_parallel, strict_perpendicular = pi_stacking(rec, lig, cutoff=7.5, tolerance=60)
 
-    pi_perpendicular_count = [pi_stacking(rec,
-                                          mol,
-                                          cutoff=8)[3].sum() for mol in mols]
-    print(pi_perpendicular_count)
-    assert_array_equal(pi_perpendicular_count,
-                       [])
+    lig_centroids = [[5.4701666, 6.1994996, 30.8313350],
+                     [8.1811666, 2.5846664, 28.4028320]]
+
+    lig_vectors = [[0.471341, 0.023758, 0.857421],
+                   [0.772514, 0.518052, 1.354878]]
+
+    rec_centroids = [[5.6579995, 2.2964999, 23.4626674],
+                     [7.8634004, 7.7310004, 34.8283996],
+                     [9.8471670, 8.5676660, 34.9915008],
+                     [9.9951667, 3.7756664, 32.8191680],
+                     [10.055333, -1.4720000, 17.2121658],
+                     [14.519165, 1.8759999, 29.8346652],
+                     [16.490833, 16.873500, 27.9169998],
+                     [18.718666, 12.703166, 33.3141670],
+                     [25.716165, 4.9741668, 31.8198337]]
+    rec_vectors = [[0.197429, -0.044215, 0.937011],
+                   [0.271271, 0.082978, 1.345218],
+                   [0.335873, 0.659132, 1.307615],
+                   [0.531174, 0.010709, -0.066511],
+                   [0.535675, 0.512232, -0.519266],
+                   [0.788169, 0.233635, -0.698541],
+                   [1.097706, 0.017989, 1.071040],
+                   [1.147590, 0.122895, 0.798543],
+                   [1.347235, 0.516426, -0.461548]]
+
+    centroids_dist = [[8.3406204, 5.5546951],
+                      [4.9040379, 8.2385464],
+                      [6.4863953, 9.0544131],
+                      [5.5047319, 4.9206809],
+                      [16.2897951, 12.0498984],
+                      [10.0782127, 6.5362510],
+                      [15.6167449, 16.5365460],
+                      [14.9661240, 15.4124670],
+                      [20.3071175, 18.0239224]]
+
+    assert_array_almost_equal(distance(rec_centroids, lig_centroids), centroids_dist)
+
+    assert len(lig.ring_dict) == 2
+    assert_array_almost_equal(sorted(lig.ring_dict['centroid'].tolist()), lig_centroids, decimal=5)
+    assert_array_almost_equal(sorted(lig.ring_dict['vector'].tolist()), lig_vectors, decimal=5)
+    assert len(rec.ring_dict) == 9
+    assert_array_almost_equal(sorted(rec.ring_dict['centroid'].tolist()), rec_centroids, decimal=5)
+    assert_array_almost_equal(sorted(rec.ring_dict['vector'].tolist()), rec_vectors, decimal=5)
+
+    assert len(ring) == 6
+    assert strict_parallel.sum() == 3
+    assert strict_perpendicular.sum() == 0
+    resids = sorted(ring['resid'])
+    # assert_array_equal(resids, [1, 2, 2, 17, 17, 58])
+    # re-check indexing of residues
+    assert_array_equal(rec.res_dict[resids]['resnum'], [7, 8, 8, 38, 38, 108])
+    assert_array_equal(sorted(ring['resnum']), [7, 8, 8, 38, 38, 108])
+    assert_array_equal(sorted(ring['resname']), ['PHE', 'PHE', 'TRP', 'TRP', 'TYR', 'TYR'])
 
 
-@nottest
+@pytest.mark.skip
 def test_salt_bridges():
     """Salt bridges test"""
     salt_bridges_count = [len(salt_bridges(rec, mol)[0]) for mol in mols]
@@ -96,7 +139,7 @@ def test_salt_bridges():
                         6, 5, 5, 7, 7, 6, 8, 6, 4, 5])
 
 
-@nottest
+@pytest.mark.skip
 def test_pi_cation():
     """Pi-cation test"""
     pi_cation_count = [len(pi_cation(rec, mol)[2]) for mol in mols]

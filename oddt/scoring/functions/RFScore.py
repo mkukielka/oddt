@@ -1,10 +1,12 @@
 from __future__ import print_function
 import sys
-from os.path import dirname, isfile
+from os.path import dirname, isfile, join as path_join
 import numpy as np
-from joblib import Parallel, delayed
+
+from scipy.stats import pearsonr
+from sklearn.metrics import r2_score
+
 import warnings
-import pandas as pd
 
 try:
     import compiledtrees
@@ -12,11 +14,12 @@ except ImportError:
     compiledtrees = None
 
 from oddt import random_seed
-from oddt.metrics import rmse
+from oddt.metrics import rmse, standard_deviation_error
 from oddt.scoring import scorer, ensemble_descriptor
 from oddt.scoring.models.regressors import randomforest
-from oddt.scoring.descriptors import close_contacts, oddt_vina_descriptor
-from oddt.datasets import pdbbind
+from oddt.scoring.descriptors import (close_contacts_descriptor,
+                                      oddt_vina_descriptor)
+
 
 # numpy after pickling gives Runtime Warnings
 warnings.simplefilter("ignore", RuntimeWarning)
@@ -27,16 +30,52 @@ protein_atomic_nums = [6, 7, 8, 16]
 cutoff = 12
 
 
-# define sub-function for paralelization
-def _parallel_helper(*args, **kwargs):
-    """Private helper to workaround Python 2 pickle limitations to paralelize methods"""
-    obj, methodname = args[:2]
-    new_args = args[2:]
-    return getattr(obj, methodname)(*new_args, **kwargs)
-
-
 class rfscore(scorer):
     def __init__(self, protein=None, n_jobs=-1, version=1, spr=0, **kwargs):
+        """Scoring function implementing RF-Score variants. It predicts the
+        binding affinity  (pKi/d) of ligand in a complex utilizng simple
+        descriptors (close contacts of atoms <12A) with sophisticated
+        machine-learning model (random forest). The third variand supplements
+        those contacts with Vina partial scores. For futher details see RF-Score
+        publications v1[1]_, v2[2]_, v3[3]_.
+
+
+        Parameters
+        ----------
+        protein : oddt.toolkit.Molecule object
+            Receptor for the scored ligands
+
+        n_jobs: int (default=-1)
+            Number of cores to use for scoring and training. By default (-1)
+            all cores are allocated.
+
+        version: int (default=1)
+            Scoring function variant. The deault is the simplest one (v1).
+
+        spr: int (default=0)
+            The minimum number of contacts in each pair of atom types in
+            the training set for the column to be included in training.
+            This is a way of removal of not frequent and empty contacts.
+
+        References
+        ----------
+        .. [1] Ballester PJ, Mitchell JBO. A machine learning approach to
+            predicting protein-ligand binding affinity with applications to
+            molecular docking. Bioinformatics. 2010;26: 1169-1175.
+            doi:10.1093/bioinformatics/btq112
+
+        .. [2] Ballester PJ, Schreyer A, Blundell TL. Does a more precise
+            chemical description of protein-ligand complexes lead to more
+            accurate prediction of binding affinity? J Chem Inf Model. 2014;54:
+            944-955. doi:10.1021/ci500091r
+
+        .. [3] Li H, Leung K-S, Wong M-H, Ballester PJ. Improving AutoDock Vina
+            Using Random Forest: The Growing Accuracy of Binding Affinity
+            Prediction by the Effective Exploitation of Larger Data Sets.
+            Mol Inform. WILEY-VCH Verlag; 2015;34: 115-126.
+            doi:10.1002/minf.201400132
+
+        """
         self.protein = protein
         self.n_jobs = n_jobs
         self.version = version
@@ -44,24 +83,27 @@ class rfscore(scorer):
         if version == 1:
             cutoff = 12
             mtry = 6
-            descriptors = close_contacts(protein,
-                                         cutoff=cutoff,
-                                         protein_types=protein_atomic_nums,
-                                         ligand_types=ligand_atomic_nums)
+            descriptors = close_contacts_descriptor(
+                protein,
+                cutoff=cutoff,
+                protein_types=protein_atomic_nums,
+                ligand_types=ligand_atomic_nums)
         elif version == 2:
             cutoff = np.array([0, 2, 4, 6, 8, 10, 12])
             mtry = 14
-            descriptors = close_contacts(protein,
-                                         cutoff=cutoff,
-                                         protein_types=protein_atomic_nums,
-                                         ligand_types=ligand_atomic_nums)
+            descriptors = close_contacts_descriptor(
+                protein,
+                cutoff=cutoff,
+                protein_types=protein_atomic_nums,
+                ligand_types=ligand_atomic_nums)
         elif version == 3:
             cutoff = 12
             mtry = 6
-            cc = close_contacts(protein,
-                                cutoff=cutoff,
-                                protein_types=protein_atomic_nums,
-                                ligand_types=ligand_atomic_nums)
+            cc = close_contacts_descriptor(
+                protein,
+                cutoff=cutoff,
+                protein_types=protein_atomic_nums,
+                ligand_types=ligand_atomic_nums)
             vina_scores = ['vina_gauss1',
                            'vina_gauss2',
                            'vina_repulsion',
@@ -77,77 +119,34 @@ class rfscore(scorer):
                              bootstrap=True,
                              min_samples_split=6,
                              **kwargs)
-        super(rfscore, self).__init__(model, descriptors, score_title='rfscore_v%i' % self.version)
+        super(rfscore, self).__init__(model, descriptors,
+                                      score_title='rfscore_v%i' % self.version)
 
     def gen_training_data(self,
                           pdbbind_dir,
                           pdbbind_versions=(2007, 2012, 2013, 2014, 2015, 2016),
-                          home_dir=None):
-        pdbbind_versions = sorted(pdbbind_versions)
+                          home_dir=None,
+                          use_proteins=False):
+        if home_dir is None:
+            home_dir = dirname(__file__) + '/RFScore'
+        filename = path_join(home_dir, 'rfscore_descs_v%i.csv' % self.version)
 
-        # generate metadata
-        df = []
-        for pdbbind_version in pdbbind_versions:
-            p = pdbbind('%s/v%i/' % (pdbbind_dir, pdbbind_version),
-                        version=pdbbind_version,
-                        opt={'b': None})
-            # Core set
-            tmp_df = pd.DataFrame({'pdbid': list(p.sets['core'].keys()),
-                                   '%i_core' % pdbbind_version: list(p.sets['core'].values())})
-            df = pd.merge(tmp_df, df, how='outer', on='pdbid') if len(df) else tmp_df
+        super(rfscore, self)._gen_pdbbind_desc(
+            pdbbind_dir=pdbbind_dir,
+            pdbbind_versions=pdbbind_versions,
+            desc_path=filename,
+            use_proteins=use_proteins,
+            opt={'b': None},
+        )
 
-            # Refined Set
-            tmp_df = pd.DataFrame({'pdbid': list(p.sets['refined'].keys()),
-                                   '%i_refined' % pdbbind_version: list(p.sets['refined'].values())})
-            df = pd.merge(tmp_df, df, how='outer', on='pdbid')
-
-            # General Set
-            general_name = 'general_PL' if pdbbind_version > 2007 else 'general'
-            tmp_df = pd.DataFrame({'pdbid': list(p.sets[general_name].keys()),
-                                   '%i_general' % pdbbind_version: list(p.sets[general_name].values())})
-            df = pd.merge(tmp_df, df, how='outer', on='pdbid')
-
-        df.sort_values('pdbid', inplace=True)
-        tmp_act = df['%i_general' % pdbbind_versions[-1]].values
-        df = df.set_index('pdbid').notnull()
-        df['act'] = tmp_act
-        # take non-empty and core + refined set
-        df = df[df['act'].notnull() & df.filter(regex='.*_[refined,core]').any(axis=1)]
-
-        # build descriptos
-        pdbbind_db = pdbbind('%s/v%i/' % (pdbbind_dir, pdbbind_versions[-1]), version=pdbbind_versions[-1])
+    def train(self, home_dir=None, sf_pickle=None, pdbbind_version=2016):
         if not home_dir:
             home_dir = dirname(__file__) + '/RFScore'
 
-        result = Parallel(n_jobs=self.n_jobs,
-                          verbose=1)(delayed(_parallel_helper)(self.descriptor_generator,
-                                                               'build',
-                                                               [pdbbind_db[pid].ligand],
-                                                               protein=pdbbind_db[pid].pocket)
-                                     for pid in df.index.values if pdbbind_db[pid].pocket is not None)
-        descs = np.vstack(result)
-        for i in range(len(self.descriptor_generator)):
-            df[str(i)] = descs[:, i]
-        df.to_csv(home_dir + '/rfscore_descs_v%i.csv' % self.version, float_format='%.5g')
+        desc_path = path_join(home_dir, 'rfscore_descs_v%i.csv' % self.version)
 
-    def train(self, home_dir=None, sf_pickle='', pdbbind_version=2016):
-        if not home_dir:
-            home_dir = dirname(__file__) + '/RFScore'
-
-        # load precomputed descriptors and target values
-        df = pd.read_csv(home_dir + '/rfscore_descs_v%i.csv' % self.version, index_col='pdbid')
-
-        train_set = 'refined'
-        test_set = 'core'
-        cols = list(map(str, range(len(self.descriptor_generator))))
-        self.train_descs = (df[(df['%i_%s' % (pdbbind_version, train_set)] &
-                               ~df['%i_%s' % (pdbbind_version, test_set)])][cols]
-                            .values)
-        self.train_target = (df[(df['%i_%s' % (pdbbind_version, train_set)] &
-                                 ~df['%i_%s' % (pdbbind_version, test_set)])]['act']
-                             .values)
-        self.test_descs = df[df['%i_%s' % (pdbbind_version, test_set)]][cols].values
-        self.test_target = df[df['%i_%s' % (pdbbind_version, test_set)]]['act'].values
+        super(rfscore, self)._load_pdbbind_desc(desc_path,
+                                                pdbbind_version=pdbbind_version)
 
         # remove sparse dimentions
         if self.spr > 0:
@@ -160,52 +159,52 @@ class rfscore(scorer):
         random_seed(1)
         self.model.fit(self.train_descs, self.train_target)
 
-        print("Training RFScore v%i on PDBBind v%i" % (self.version, pdbbind_version), file=sys.stderr)
+        print('Training RFScore v%i on PDBBind v%i'
+              % (self.version, pdbbind_version), file=sys.stderr)
 
-        error = rmse(self.model.predict(self.test_descs), self.test_target)
-        r2 = self.model.score(self.test_descs, self.test_target)
-        r = np.sqrt(r2)
-        print('Test set:',
-              'R**2: %.4f' % r2,
-              'R: %.4f' % r,
-              'RMSE: %.4f' % error,
-              sep='\t', file=sys.stderr)
+        sets = [
+            ('Test', self.model.predict(self.test_descs), self.test_target),
+            ('Train', self.model.predict(self.train_descs), self.train_target),
+            ('OOB', self.model.oob_prediction_, self.train_target)]
 
-        error = rmse(self.model.predict(self.train_descs), self.train_target)
-        oob_error = rmse(self.model.oob_prediction_, self.train_target)
-        r2 = self.model.score(self.train_descs, self.train_target)
-        r = np.sqrt(r2)
-        print('Train set:',
-              'R**2: %.4f' % r2,
-              'R: %.4f' % r,
-              'RMSE: %.4f' % error,
-              'OOB RMSE: %.4f' % oob_error,
-              sep='\t', file=sys.stderr)
+        for name, pred, target in sets:
+            print('%s set:' % name,
+                  'R2_score: %.4f' % r2_score(target, pred),
+                  'Rp: %.4f' % pearsonr(target, pred)[0],
+                  'RMSE: %.4f' % rmse(target, pred),
+                  'SD: %.4f' % standard_deviation_error(target, pred),
+                  sep='\t', file=sys.stderr)
 
         # compile trees
         if compiledtrees is not None:
             try:
-                print("Compiling Random Forest using sklearn-compiledtrees", file=sys.stderr)
-                self.model = compiledtrees.CompiledRegressionPredictor(self.model, n_jobs=self.n_jobs)
+                print('Compiling Random Forest using sklearn-compiledtrees',
+                      file=sys.stderr)
+                self.model = compiledtrees.CompiledRegressionPredictor(
+                    self.model, n_jobs=self.n_jobs)
             except Exception as e:
-                print("Failed to compile Random Forest with exception: %s" % e, file=sys.stderr)
-                print("Continuing without compiled RF.", file=sys.stderr)
+                print('Failed to compile Random Forest with exception: %s' % e,
+                      file=sys.stderr)
+                print('Continuing without compiled RF.', file=sys.stderr)
 
-        if sf_pickle:
-            return self.save(sf_pickle)
+        if sf_pickle is None:
+            return self.save('RFScore_v%i_pdbbind%i.pickle'
+                             % (self.version, pdbbind_version))
         else:
-            return self.save('RFScore_v%i_pdbbind%i.pickle' % (self.version, pdbbind_version))
+            return self.save(sf_pickle)
 
     @classmethod
-    def load(self, filename='', version=1, pdbbind_version=2016):
-        if not filename:
-            for f in ['RFScore_v%i_pdbbind%i.pickle' % (version, pdbbind_version),
-                      dirname(__file__) + '/RFScore_v%i_pdbbind%i.pickle' % (version, pdbbind_version)]:
+    def load(self, filename=None, version=1, pdbbind_version=2016):
+        if filename is None:
+            fname = 'RFScore_v%i_pdbbind%i.pickle' % (version, pdbbind_version)
+            for f in [fname, path_join(dirname(__file__), fname)]:
                 if isfile(f):
                     filename = f
                     break
             else:
-                print("No pickle, training new scoring function.", file=sys.stderr)
+                print('No pickle, training new scoring function.',
+                      file=sys.stderr)
                 rf = rfscore(version=version)
-                filename = rf.train(sf_pickle=filename, pdbbind_version=pdbbind_version)
+                filename = rf.train(sf_pickle=filename,
+                                    pdbbind_version=pdbbind_version)
         return scorer.load(filename)

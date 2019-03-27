@@ -1,10 +1,15 @@
+from functools import partial
+
 import numpy as np
 from scipy.spatial.distance import cdist as distance
+from scipy.sparse import vstack as sparse_vstack
 
+from oddt.utils import is_molecule
 from oddt.docking import autodock_vina
 from oddt.docking.internal import vina_docking
+from oddt.fingerprints import sparse_to_csr_matrix
 
-__all__ = ['close_contacts',
+__all__ = ['close_contacts_descriptor',
            'fingerprints',
            'autodock_vina_descriptor',
            'oddt_vina_descriptor']
@@ -19,73 +24,65 @@ def atoms_by_type(atom_dict, types, mode='atomic_nums'):
 
     Parameters
     ----------
-        atom_dict: oddt.toolkit.Molecule.atom_dict
-            Atom dictionary as implemeted in oddt.toolkit.Molecule class
+    atom_dict: oddt.toolkit.Molecule.atom_dict
+        Atom dictionary as implemeted in oddt.toolkit.Molecule class
 
-        types: array-like
-            List of atom types/numbers wanted.
+    types: array-like
+        List of atom types/numbers wanted.
 
     Returns
     -------
-        out: dictionary of shape=[len(types)]
-            A dictionary of queried atom types (types are keys of the dictionary).
-            Values are of oddt.toolkit.Molecule.atom_dict type.
+    out: dictionary of shape=[len(types)]
+        A dictionary of queried atom types (types are keys of the dictionary).
+        Values are of oddt.toolkit.Molecule.atom_dict type.
     """
+
+    ad4_to_atomicnum = {
+        'HD': 1, 'C': 6, 'CD': 6, 'A': 6, 'N': 7, 'NA': 7, 'OA': 8, 'F': 9,
+        'MG': 12, 'P': 15, 'SA': 16, 'S': 16, 'CL': 17, 'CA': 20, 'MN': 25,
+        'FE': 26, 'CU': 29, 'ZN': 30, 'BR': 35, 'I': 53
+    }
+
     if mode == 'atomic_nums':
-        return {num: atom_dict[atom_dict['atomicnum'] == num] for num in set(types)}
+        return {num: atom_dict[atom_dict['atomicnum'] == num]
+                for num in set(types)}
     elif mode == 'atom_types_sybyl':
-        return {t: atom_dict[atom_dict['atomtype'] == t] for t in set(types)}
+        return {t: atom_dict[atom_dict['atomtype'] == t]
+                for t in set(types)}
     elif mode == 'atom_types_ad4':
         # all AD4 atom types are capitalized
         types = [t.upper() for t in types]
         out = {}
         for t in set(types):
-            if t == 'HD':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 1) & atom_dict['isdonorh']]
-            elif t == 'C':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 6) & ~atom_dict['isaromatic']]
-            elif t == 'CD':  # not canonical AD4 type, although used by NNscore, with no description
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 6) & ~atom_dict['isdonor']]
-            elif t == 'A':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 6) & atom_dict['isaromatic']]
-            elif t == 'N':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 7) & ~atom_dict['isacceptor']]
-            elif t == 'NA':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 7) & atom_dict['isacceptor']]
-            elif t == 'OA':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 8) & atom_dict['isacceptor']]
-            elif t == 'F':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 9]
-            elif t == 'MG':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 12]
-            elif t == 'P':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 15]
-            elif t == 'SA':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 16) & atom_dict['isacceptor']]
-            elif t == 'S':
-                out[t] = atom_dict[(atom_dict['atomicnum'] == 16) & ~atom_dict['isacceptor']]
-            elif t == 'CL':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 17]
-            elif t == 'CA':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 20]
-            elif t == 'MN':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 25]
-            elif t == 'FE':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 26]
-            elif t == 'CU':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 29]
-            elif t == 'ZN':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 30]
-            elif t == 'BR':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 35]
-            elif t == 'I':
-                out[t] = atom_dict[atom_dict['atomicnum'] == 53]
+            if t in ad4_to_atomicnum:
+                constraints = (atom_dict['atomicnum'] == ad4_to_atomicnum[t])
+                # additoinal constraints for more specific atom types (donors,
+                # acceptors, aromatic etc)
+                if t == 'HD':
+                    constraints &= atom_dict['isdonorh']
+                elif t == 'C':
+                    constraints &= ~atom_dict['isaromatic']
+                elif t == 'CD':
+                    # not canonical AD4 type, although used by NNscore, with no
+                    # description
+                    constraints &= ~atom_dict['isdonor']
+                elif t == 'A':
+                    constraints &= atom_dict['isaromatic']
+                elif t in ('N', 'S'):
+                    constraints &= ~atom_dict['isacceptor']
+                elif t in ('NA', 'OA', 'SA'):
+                    constraints &= atom_dict['isacceptor']
+
+                out[t] = atom_dict[constraints]
+
             else:
                 raise ValueError('Unsopported atom type: %s' % t)
-        return out
+    else:
+        raise ValueError('Unsopported mode: %s' % mode)
+    return out
 
 
-class close_contacts(object):
+class close_contacts_descriptor(object):
     def __init__(self,
                  protein=None,
                  cutoff=4,
@@ -93,37 +90,40 @@ class close_contacts(object):
                  ligand_types=None,
                  protein_types=None,
                  aligned_pairs=False):
-        """Close contacts descriptor which tallies atoms of type X in certain cutoff from atoms of type Y.
+        """Close contacts descriptor which tallies atoms of type X in certain
+        cutoff from atoms of type Y.
 
         Parameters
         ----------
-            protein: oddt.toolkit.Molecule or None (default=None)
-                Default protein to use as reference
+        protein: oddt.toolkit.Molecule or None (default=None)
+            Default protein to use as reference
 
-            cutoff: int or list, shape=[n,] or shape=[n,2] (default=4)
-                Cutoff for atoms in Angstroms given as an integer or a list of ranges,
-                eg. [0, 4, 8, 12] or [[0,4],[4,8],[8,12]].
-                Upper bound is always inclusive, lower exclusive.
+        cutoff: int or list, shape=[n,] or shape=[n,2] (default=4)
+            Cutoff for atoms in Angstroms given as an integer or a list of
+            ranges, eg. [0, 4, 8, 12] or [[0,4],[4,8],[8,12]].
+            Upper bound is always inclusive, lower exclusive.
 
-            mode: string (default='atomic_nums')
-                Method of atoms selection, as used in `atoms_by_type`
+        mode: string (default='atomic_nums')
+            Method of atoms selection, as used in `atoms_by_type`
 
-            ligand_types: array
-                List of ligand atom types to use
+        ligand_types: array
+            List of ligand atom types to use
 
-            protein_types: array
-                List of protein atom types to use
+        protein_types: array
+            List of protein atom types to use
 
-            aligned_pairs: bool (default=False)
-                Flag indicating should permutation of types should be done,
-                otherwise the atoms are treated as aligned pairs.
+        aligned_pairs: bool (default=False)
+            Flag indicating should permutation of types should be done,
+            otherwise the atoms are treated as aligned pairs.
         """
-        if type(cutoff) in [int, float]:
-            self.cutoff = np.array([cutoff])
-        elif len(np.array(cutoff).shape) == 1:
-            self.cutoff = np.vstack((np.array(cutoff)[:-1], np.array(cutoff)[1:])).T
-        else:
-            self.cutoff = np.array(cutoff)
+        self.cutoff = np.atleast_1d(cutoff)
+        # Cutoffs in fomr of continuous intervals (0,2,4,6,...)
+        if len(self.cutoff) > 1 and self.cutoff.ndim == 1:
+            self.cutoff = np.vstack((self.cutoff[:-1],
+                                     self.cutoff[1:])).T
+        elif self.cutoff.ndim > 2:
+            raise ValueError('Unsupported shape of cutoff: %s' % self.cutoff.shape)
+
         # for pickle save original value
         self.original_cutoff = cutoff
 
@@ -136,7 +136,8 @@ class close_contacts(object):
         # setup titles
         if len(self.cutoff) == 1:
             self.titles = ['%s.%s' % (str(p), str(l))
-                           for p in self.protein_types for l in self.ligand_types
+                           for p in self.protein_types
+                           for l in self.ligand_types
                            ]
         else:
             self.titles = ['%s.%s_%s-%s' % (str(p), str(l), str(c1), str(c2))
@@ -145,65 +146,147 @@ class close_contacts(object):
                            for c1, c2 in self.cutoff
                            ]
 
-    def build(self, ligands, protein=None, single=False):
+    def build(self, ligands, protein=None):
         """Builds descriptors for series of ligands
 
         Parameters
         ----------
-            ligands: iterable of oddt.toolkit.Molecules or oddt.toolkit.Molecule
-                A list or iterable of ligands to build the descriptor or a single molecule.
+        ligands: iterable of oddt.toolkit.Molecules or oddt.toolkit.Molecule
+            A list or iterable of ligands to build the descriptor or a
+            single molecule.
 
-            protein: oddt.toolkit.Molecule or None (default=None)
-                Default protein to use as reference
-
-            single: bool (default=False)
-                Flag indicating if the ligand is single.
+        protein: oddt.toolkit.Molecule or None (default=None)
+            Default protein to use as reference
 
         """
         if protein:
             self.protein = protein
-        if single and type(ligands) is not list:
+        if is_molecule(ligands):
             ligands = [ligands]
-        out = np.zeros(len(self), dtype=int)
+        out = []
         for mol in ligands:
             mol_dict = atoms_by_type(mol.atom_dict, self.ligand_types, self.mode)
             if self.aligned_pairs:
                 pairs = zip(self.ligand_types, self.protein_types)
             else:
-                pairs = [(mol_type, prot_type) for mol_type in self.ligand_types for prot_type in self.protein_types]
-            # desc = np.array([(distance(atoms_by_type(protein.atom_dict, [prot_type], self.mode)[prot_type]['coords'], atoms_by_type(mol.atom_dict, [mol_type], self.mode)[mol_type]['coords'])[..., np.newaxis] <= self.cutoff).sum(axis=(0,1)) for mol_type, prot_type in pairs], dtype=int).flatten()
+                pairs = [(mol_type, prot_type)
+                         for mol_type in self.ligand_types
+                         for prot_type in self.protein_types]
 
-            local_protein_dict = self.protein.atom_dict[(distance(self.protein.atom_dict['coords'], mol.atom_dict['coords']) <= self.cutoff.max()).any(axis=1)]
-            prot_dict = atoms_by_type(local_protein_dict, self.protein_types, self.mode)
+            dist = distance(self.protein.atom_dict['coords'],
+                            mol.atom_dict['coords'])
+            within_cutoff = (dist <= self.cutoff.max()).any(axis=1)
+            local_protein_dict = self.protein.atom_dict[within_cutoff]
+
+            prot_dict = atoms_by_type(local_protein_dict, self.protein_types,
+                                      self.mode)
             desc = []
             for mol_type, prot_type in pairs:
-                d = distance(prot_dict[prot_type]['coords'], mol_dict[mol_type]['coords'])[..., np.newaxis]
+                d = distance(prot_dict[prot_type]['coords'],
+                             mol_dict[mol_type]['coords'])[..., np.newaxis]
                 if len(self.cutoff) > 1:
-                    count = ((d > self.cutoff[..., 0]) & (d <= self.cutoff[..., 1])).sum(axis=(0, 1))
-                    # count = ne.evaluate('(d > c0) & (d <= c1)', {'d': d, 'c0': cutoff[...,0], 'c1': self.cutoff[...,1]}).sum(axis=(0,1))
+                    count = ((d > self.cutoff[..., 0]) &
+                             (d <= self.cutoff[..., 1])).sum(axis=(0, 1))
+
                 else:
                     count = (d <= self.cutoff).sum()
                 desc.append(count)
             desc = np.array(desc, dtype=int).flatten()
-            out = np.vstack((out, desc))
-        return out[1:]
+            out.append(desc)
+        return np.vstack(out)
 
     def __len__(self):
         """ Returns the dimensions of descriptors """
         if self.aligned_pairs:
             return len(self.ligand_types) * self.cutoff.shape[0]
         else:
-            return len(self.ligand_types) * len(self.protein_types) * self.cutoff.shape[0]
+            return len(self.ligand_types) * len(self.protein_types) * len(self.cutoff)
 
     def __reduce__(self):
-        return close_contacts, (self.protein,
-                                self.original_cutoff,
-                                self.mode,
-                                self.ligand_types,
-                                self.protein_types,
-                                self.aligned_pairs)
+        return close_contacts_descriptor, (self.protein,
+                                           self.original_cutoff,
+                                           self.mode,
+                                           self.ligand_types,
+                                           self.protein_types,
+                                           self.aligned_pairs)
 
 
+class universal_descriptor(object):
+    def __init__(self,
+                 func,
+                 protein=None,
+                 shape=None,
+                 sparse=False):
+        """An universal descriptor which converts a callable object (function)
+        to a descriptor generator which can be used in scoring methods.
+
+        .. versionadded:: 0.6
+
+        Parameters
+        ----------
+        func: object
+            A function to be mapped accross all ligands. Can be any callable
+            object, which takes ligand as first argument and optionally
+            protein key word argument. Additional arguments should be set
+            using `functools.partial`.
+
+        protein: oddt.toolkit.Molecule or None (default=None)
+            Default protein to use as reference
+
+        """
+        self.func = func
+        self.protein = protein
+        self.shape = shape
+        self.sparse = sparse
+        if isinstance(func, partial):
+            self.titles = self.func.func.__name__
+        else:
+            self.titles = self.func.__name__
+
+    def build(self, ligands, protein=None):
+        """Builds descriptors for series of ligands
+
+        Parameters
+        ----------
+        ligands: iterable of oddt.toolkit.Molecules or oddt.toolkit.Molecule
+            A list or iterable of ligands to build the descriptor or a
+            single molecule.
+
+        protein: oddt.toolkit.Molecule or None (default=None)
+            Default protein to use as reference
+
+        """
+        if protein:
+            self.protein = protein
+        if is_molecule(ligands):
+            ligands = [ligands]
+        out = []
+        for mol in ligands:
+            if self.protein is None:
+                out.append(self.func(mol))
+            else:
+                out.append(self.func(mol, protein=self.protein))
+        if self.sparse:
+            # out = list(map(partial(sparse_to_csr_matrix, size=self.shape), out))
+            return sparse_vstack(map(partial(sparse_to_csr_matrix,
+                                             size=self.shape), out),
+                                 format='csr')
+        else:
+            return np.vstack(out)
+
+    def __len__(self):
+        """ Returns the dimensions of descriptors """
+        if self.shape is None:
+            raise NotImplementedError('The length of descriptor is not defined')
+        else:
+            return self.shape
+
+    def __reduce__(self):
+        return universal_descriptor, (self.func, self.protein, self.shape,
+                                      self.sparse)
+
+
+# TODO: we don't use toolkit. should we?
 class fingerprints(object):
     def __init__(self, fp='fp2', toolkit='ob'):
         self.fp = fp
@@ -219,17 +302,14 @@ class fingerprints(object):
             mol = self.target_toolkit.Molecule(mol)
         return mol.calcfp(self.fp).raw
 
-    def build(self, mols, single=False):
-        if single:
+    def build(self, mols):
+        if is_molecule(mols):
             mols = [mols]
-        out = None
-
+        out = []
         for mol in mols:
             fp = self._get_fingerprint(mol)
-            if out is None:
-                out = np.zeros_like(fp)
-            out = np.vstack((fp, out))
-        return out[1:]
+            out.append(fp)
+        return np.vstack(out)
 
     def __reduce__(self):
         return fingerprints, ()
@@ -251,27 +331,26 @@ class autodock_vina_descriptor(object):
         self.protein = protein
         self.vina.set_protein(protein)
 
-    def build(self, ligands, protein=None, single=False):
+    def build(self, ligands, protein=None):
         if protein:
             self.set_protein(protein)
         else:
             protein = self.protein
-        if ligands.__class__.__name__ == 'Molecule':
+        if is_molecule(ligands):
             ligands = [ligands]
         desc = None
         for mol in ligands:
             # Vina
             # TODO: Asynchronous output from vina, push command to score and retrieve at the end?
             # TODO: Check if ligand has vina scores
-            scored_mol = self.vina.score(mol, single=True)[0].data
-            vec = np.array(([scored_mol[key] for key in self.vina_scores]), dtype=np.float32).flatten()
+            scored_mol = self.vina.score(mol)[0].data
+            vec = np.array(([scored_mol[key] for key in self.vina_scores]),
+                           dtype=np.float32).flatten()
             if desc is None:
                 desc = vec
             else:
                 desc = np.vstack((desc, vec))
-        if len(desc.shape) == 1:
-            desc = desc.reshape(1, -1)
-        return desc
+        return np.atleast_2d(desc)
 
     def __len__(self):
         """ Returns the dimensions of descriptors """
@@ -306,12 +385,12 @@ class oddt_vina_descriptor(object):
         self.protein = protein
         self.vina.set_protein(protein)
 
-    def build(self, ligands, protein=None, single=False):
+    def build(self, ligands, protein=None):
         if protein:
             self.set_protein(protein)
         else:
             protein = self.protein
-        if ligands.__class__.__name__ == 'Molecule':
+        if is_molecule(ligands):
             ligands = [ligands]
         desc = None
         for mol in ligands:
@@ -325,13 +404,16 @@ class oddt_vina_descriptor(object):
                 affinity = ((inter * self.vina.weights[:5]).sum() /
                             (1 + self.vina.weights[5] * num_rotors))
                 assert len(self.all_vina_scores) == len(inter) + len(intra) + 2
-                score = dict(zip(self.all_vina_scores,
-                                 np.hstack((affinity, inter, intra, num_rotors)).flatten()))
+                score = dict(zip(
+                    self.all_vina_scores,
+                    np.hstack((affinity, inter, intra, num_rotors)).flatten()
+                ))
                 mol.data.update(score)
             else:
                 score = mol.data.to_dict()
             try:
-                vec = np.array([score[s] for s in self.vina_scores], dtype=np.float32).flatten()
+                vec = np.array([score[s] for s in self.vina_scores],
+                               dtype=np.float32).flatten()
             except Exception as e:
                 print(score, affinity, inter, intra, num_rotors)
                 print(mol.title)
@@ -340,9 +422,7 @@ class oddt_vina_descriptor(object):
                 desc = vec
             else:
                 desc = np.vstack((desc, vec))
-        if len(desc.shape) == 1:
-            desc = desc.reshape(1, -1)
-        return desc
+        return np.atleast_2d(desc)
 
     def __len__(self):
         """ Returns the dimensions of descriptors """

@@ -33,6 +33,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+.pytest_cache
 
 # Translations
 *.mo
@@ -57,3 +58,15 @@ docs/_build/
 
 # Conda
 conda-recipe/*
+
+# Airspeed Velocity perf testing
+asv_bench/env/
+asv_bench/html/
+asv_bench/results/
+
+# training artifacts
+*.pickle
+
+# testing artifacts
+tests/data/v*
+grid_test.sh
