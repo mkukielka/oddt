@@ -18,8 +18,23 @@ mols = list(filter(lambda x: x.title == '312335', mols))
 _ = list(map(lambda x: x.addh(only_polar=True), mols))
 lig = mols[0]
 
-def test_score():
+
+def test_score_nelder_mead():
     engine = vina_docking(receptor, lig)
     mcmc = MCMCAlgorithm(engine, optim=OptimizationMethod.NELDER_MEAD, optim_iter=7, mc_steps=7, mut_steps=100, seed=316815)
     out = mcmc.perform()
-    assert_almost_equal(out['score'], -3.630795265315847, decimal=3)
+    assert_almost_equal(out['score'], -3.630795265315847, decimal=0)
+
+
+def test_score_simplex():
+    engine = vina_docking(receptor, lig)
+    mcmc = MCMCAlgorithm(engine, optim=OptimizationMethod.SIMPLEX, optim_iter=7, mc_steps=50, mut_steps=100, seed=316815)
+    out = mcmc.perform()
+    assert_almost_equal(out['score'], -0.8167642695350316, decimal=0)
+
+
+def test_score_lbfgsb():
+    engine = vina_docking(receptor, lig)
+    mcmc = MCMCAlgorithm(engine, optim=OptimizationMethod.LBFGSB, optim_iter=7, mc_steps=7, mut_steps=100, seed=316815)
+    out = mcmc.perform()
+    assert_almost_equal(out['score'], -1.746366155192594, decimal=0)
