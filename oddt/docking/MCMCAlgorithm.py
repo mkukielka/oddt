@@ -39,7 +39,7 @@ class MCMCAlgorithm(object):
         x1 = self.generate_rotor_vector()
         c1 = self.engine.lig.mutate(x1)
         e1 = self.scoring_func(c1)
-        out = e1
+        out = {'score': e1, 'conformation': x1.copy().tolist()}
 
         for _ in range(self.mc_steps):
             c2, x2 = self.generate_conformation(x1)
