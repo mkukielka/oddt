@@ -232,10 +232,6 @@ def fold(fp, size):
 
 
 def sparse_to_dense(fp, size, count_bits=True):
-<<<<<<< HEAD
-    """Converts sparse fingerprint (consists only 'on' bits)
-    to dense (consists all bits)"""
-=======
     """Converts sparse fingerprint (indices of 'on' bits) to dense (vector of
     ints).
 
@@ -260,14 +256,11 @@ def sparse_to_dense(fp, size, count_bits=True):
     fp = np.asarray(fp, dtype=np.uint64)
     if fp.ndim > 1:
         raise ValueError("Input fingerprint must be a vector (1D)")
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
     sparsed_fp = np.zeros(size, dtype=np.uint8 if count_bits else bool)
     np.add.at(sparsed_fp, fp, 1)
     return sparsed_fp
 
 
-<<<<<<< HEAD
-=======
 def sparse_to_csr_matrix(fp, size, count_bits=True):
     """Converts sparse fingerprint (indices of 'on' bits) to
     `scipy.sparse.csr_matrix`, which is memorty efficient yet supported widely
@@ -353,7 +346,6 @@ def csr_matrix_to_sparse(fp):
     return np.repeat(fp.indices, fp.data)
 
 
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
 # ranges for hashing function
 MIN_HASH_VALUE = 0
 MAX_HASH_VALUE = 2 ** 32
@@ -715,33 +707,15 @@ def similarity_SPLIF(reference, query, rmsd_cutoff=1.):
 
 
 def PLEC(ligand, protein, depth_ligand=2, depth_protein=4, distance_cutoff=4.5,
-<<<<<<< HEAD
-           size=16384, count_bits=True, sparse=True):
-    """Protein ligand extended connectivity fingerprint. For every pair of
-    atoms in contact, compute ECFP and then hash every single, corresponding depth.
-=======
          size=16384, count_bits=True, sparse=True, ignore_hoh=True):
     """Protein ligand extended connectivity fingerprint. For every pair of
     atoms in contact, compute ECFP and then hash every single, corresponding
     depth.
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
 
     Parameters
     ----------
     ligand, protein : oddt.toolkit.Molecule object
             Molecules, which are analysed in order to find interactions.
-<<<<<<< HEAD
-    depth_ligand, depth_protein : int (deafult = (2, 4))
-        The depth of the fingerprint, i.e. the number of bonds in Morgan
-        algorithm. Note: For ECFP2: depth = 1, ECFP4: depth = 2, etc.
-    size: int (default = 16384)
-        SPLIF is folded to given size.
-    distance_cutoff: float (default=4.5)
-        Cutoff distance for close contacts.
-    sparse : bool (default = True)
-        Should fingerprints be dense (contain all bits) or sparse (just the on
-        bits).
-=======
 
     depth_ligand, depth_protein : int (deafult = (2, 4))
         The depth of the fingerprint, i.e. the number of bonds in Morgan
@@ -757,17 +731,10 @@ def PLEC(ligand, protein, depth_ligand=2, depth_protein=4, distance_cutoff=4.5,
         Should fingerprints be dense (contain all bits) or sparse (just the on
         bits).
 
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
     count_bits : bool (default = True)
         Should the bits be counted or unique. In dense representation it
         translates to integer array (count_bits=True) or boolean array if False.
 
-<<<<<<< HEAD
-    Returns
-    -------
-    PLEC : numpy array
-        Calculated fp (size = no. of atoms in contacts * max(depth_protein, depth_ligand))
-=======
     ignore_hoh : bool (default = True)
         Should the water molecules be ignored. This is based on the name of the
         residue ('HOH').
@@ -776,31 +743,21 @@ def PLEC(ligand, protein, depth_ligand=2, depth_protein=4, distance_cutoff=4.5,
     -------
     PLEC : numpy array
         fp (size = atoms in contacts * max(depth_protein, depth_ligand))
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
 
     """
     result = []
     # removing h
-<<<<<<< HEAD
-    protein_dict = protein.atom_dict[protein.atom_dict['atomicnum'] != 1]
-=======
     protein_mask = protein_no_h = (protein.atom_dict['atomicnum'] != 1)
     if ignore_hoh:
         # a copy is needed, so not modifing inplace
         protein_mask = protein_mask & (protein.atom_dict['resname'] != 'HOH')
     protein_dict = protein.atom_dict[protein_mask]
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
     ligand_dict = ligand.atom_dict[ligand.atom_dict['atomicnum'] != 1]
 
     # atoms in contact
     protein_atoms, ligand_atoms = close_contacts(
         protein_dict, ligand_dict, cutoff=distance_cutoff)
 
-<<<<<<< HEAD
-    for ligand_atom, protein_atom in zip(ligand_atoms, protein_atoms):
-        ligand_ecfp = _ECFP_atom_hash(ligand, int(ligand_atom['id']), depth=depth_ligand)
-        protein_ecfp = _ECFP_atom_hash(protein, int(protein_atom['id']), depth=depth_protein)
-=======
     lig_atom_repr = {aidx: _ECFP_atom_repr(ligand, aidx)
                      for aidx in ligand_dict['id'].tolist()}
     # HOH residues might be connected to metal atoms
@@ -817,7 +774,6 @@ def PLEC(ligand, protein, depth_ligand=2, depth_protein=4, distance_cutoff=4.5,
                                        protein_atom,
                                        depth=depth_protein,
                                        atom_repr_dict=prot_atom_repr)
->>>>>>> db2563863e82bd896c54337eba16ae31ef74cf55
         assert len(ligand_ecfp) == depth_ligand + 1
         assert len(protein_ecfp) == depth_protein + 1
         # fillvalue is parameter from zip_longest
