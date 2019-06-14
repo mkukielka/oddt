@@ -1,26 +1,28 @@
 import numpy as np
 
 
-class DockingUtils(object):
+class MCMCUtils(object):
     def __init__(self):
         """
-        class containing docking utils docking engine, inheriting after oddt.docking.Docking
-
-        Parameters
-        ----------
-        engine
+        class containing MCMC utils for MCMC algorithm
         """
 
     def score_coords(self, x, engine, scoring_func):
         """
+        score using given coordinates
 
         Parameters
         ----------
-        x
-        engine
+        x: float[]
+            conformation
+
+        engine: CustomEngine
+            engine with prepared molecules and defined scoring function
 
         Returns
         -------
+        score: float
+            score
 
         """
         c1 = engine.lig.mutate(x)
@@ -28,15 +30,23 @@ class DockingUtils(object):
 
     def score_coords_jac(self, x, engine, scoring_func, step=1e-2):
         """
+        jac function for scipy.optimize.minimize
 
         Parameters
         ----------
-        x
-        engine
-        step
+        x: float[]
+            conformation
+
+        engine: CustomEngine
+            engine with prepared molecules and defined scoring function
+
+        step:
+            infinitesimal change in x (for computing the gradient)
 
         Returns
         -------
+        grad: float[]
+            gradient of the scoring function
 
         """
         c1 = engine.lig.mutate(x)
@@ -49,45 +59,37 @@ class DockingUtils(object):
             grad.append(scoring_func(cg))
         return (np.array(grad) - e1) / step
 
-    def rand_mutate_small(self, x, box_size):
+    def _random_angle(self, size=1):
         """
+        generation of random angles, in range from -pi to +pi
 
         Parameters
         ----------
-        x
-        box_size
+        size: int
+            number of random angles to generate
 
         Returns
         -------
-
+        random: float or float[size]
+            random angle (float) if size=1 or list of random angles (float[]) if size>1
         """
-        x = x.copy()
-        m = np.random.random_integers(0, len(x) - 5)
-        if m == 0:  # do random translation
-            x[:3] += np.random.uniform(-1, 1, size=3) / box_size
-        elif m == 1:  # do random rotation step
-            x[3:6] += self._random_angle(size=3) / 6
-        else:  # do random dihedral change
-            ix = 6 + m - 2
-            x[ix] += self._random_angle() / 6
-            x[ix] = np.clip(x[ix], -3.1415, 3.1415)
-        x = self.keep_bound(x)
-        return x
-
-    def _random_angle(self, size=1):
         if size > 1:
             return np.random.uniform(-np.pi, np.pi, size=size)
         return np.random.uniform(-np.pi, np.pi)
 
     def keep_bound(self, x):
         """
+        keep bound of conformation
 
         Parameters
         ----------
-        x
+        x: float[]
+            conformation
 
         Returns
         -------
+        x: float[]
+            bounded conformation
 
         """
         x[:3] = np.clip(x[:3], -1, 1)
@@ -96,13 +98,17 @@ class DockingUtils(object):
 
     def rand_mutate_big(self, x):
         """
+        change elements of conformation randomly
 
         Parameters
         ----------
-        x
+        x: float[]
+            conformation
 
         Returns
         -------
+        x: float[]
+            conformation with randomly changed elements
 
         """
         x = x.copy()

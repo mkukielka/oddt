@@ -4,6 +4,7 @@ import oddt
 from oddt.utils import is_openbabel_molecule
 from oddt.docking.AutodockVina import autodock_vina
 from oddt.docking.GeneticAlgorithm import GeneticAlgorithm
+from oddt.docking.MCMCAlgorithm import MCMCAlgorithm
 from oddt.docking.CustomEngine import CustomEngine
 from oddt.docking.internal import write_ligand_to_pdbqt
 
@@ -75,7 +76,7 @@ class Dock(object):
                 assert(isinstance(ligand, oddt.toolkit.Molecule))
                 custom_engine = CustomEngine(receptor, lig=ligand, scoring_func=scoring_func)
                 if self.docking_type == 'MCMC':
-                    # custom_engines.append(MCMCAlgorithm(self.custom_engine, **additional_params))
+                    self.custom_engines.append(MCMCAlgorithm(custom_engine, **additional_params))
                     pass
                 elif self.docking_type == 'GeneticAlgorithm':
                     self.custom_engines.append(GeneticAlgorithm(custom_engine, **additional_params))

@@ -3,25 +3,48 @@ import numpy as np
 from scipy.optimize import minimize
 
 from oddt import random_seed
-from oddt.docking.dockingUtils import DockingUtils
+from oddt.docking.MCMCUtils import MCMCUtils
 
 
 class OptimizationMethod(Enum):
+    """
+    method of optimization (one of SIMPLEX/NO_OPTIM, NELDER_MEAD or LBFGSB)
+    """
     SIMPLEX = 1
     NO_OPTIM = 1
     NELDER_MEAD = 2
     LBFGSB = 3
 
 
-# noinspection PyUnboundLocalVariable
 class MCMCAlgorithm(object):
-    def __init__(self, engine, scoring_func=None, optim=OptimizationMethod.NELDER_MEAD, optim_iter=10, mc_steps=50,
+    def __init__(self, engine, optim=OptimizationMethod.NELDER_MEAD, optim_iter=10, mc_steps=50,
                  mut_steps=100, seed=None, ):
+        """
+
+        Parameters
+        ----------
+        engine: CustomEngine
+            engine with prepared molecules and defined scoring function
+
+        optim: OptimizationMethod
+            method of optimization (or SIMPLEX/NO_OPTIM if none) around locally chosen conformation point,
+            must be one of the values in OptimizationMethod enumeration
+
+        optim_iter: int (default=10)
+            number of iterations for local optimization, in the scipy.optimize.minimize
+
+        mc_steps: int (default=50)
+            number of steps performed by the MCMC algorithm
+
+        mut_steps: int (100)
+            number of mutation steps (while choosing next random conformation)
+
+        seed: int
+            seed for the pseudonumber generators
+        """
 
         self.engine = engine
-        self.scoring_func = scoring_func
-        if not self.scoring_func:
-            self.scoring_func = engine.score
+        self.ligand = engine.lig
         self.optim = optim
         self.optim_iter = optim_iter
         self.mc_steps = mc_steps
@@ -32,18 +55,27 @@ class MCMCAlgorithm(object):
         self.num_rotors = len(self.engine.rotors)
 
         self.lig_dict = self.engine.lig_dict
-        self.docking_utils = DockingUtils()
+        self.mcmc_utils = MCMCUtils()
 
     def perform(self):
+        """
+        performs the algorithm
+
+        Returns
+        -------
+        conformation, score: float[], float
+            best conformation and best score for this conformation
+
+        """
 
         x1 = self.generate_rotor_vector()
         c1 = self.engine.lig.mutate(x1)
-        e1 = self.scoring_func(c1)
-        out = {'score': e1, 'conformation': x1.copy().tolist()}
+        e1 = self.engine.score(c1)
+        out = {'score': e1, 'conformation': c1.copy().tolist()}
 
         for _ in range(self.mc_steps):
             c2, x2 = self.generate_conformation(x1)
-            e2 = self.scoring_func(c2)
+            e2 = self.engine.score(c2)
             e3, x3 = self._optimize(e2, x2)
 
             delta = e3 - e1
@@ -52,9 +84,10 @@ class MCMCAlgorithm(object):
                 x1 = x3
                 if delta < 0:
                     e1 = e3
-                    out = {'score': e1, 'conformation': x1.copy().tolist()}
+                    conformation = self.engine.lig.mutate(x1.copy())
+                    out = {'score': e1, 'conformation': conformation.tolist()}
 
-        return out
+        return out['conformation'], out['score']
 
     def _optimize(self, e2, x2):
 
@@ -73,7 +106,7 @@ class MCMCAlgorithm(object):
 
     def _minimize_nelder_mead(self, x2):
 
-        m = minimize(self.docking_utils.score_coords, x2, args=(self.engine, self.scoring_func),
+        m = minimize(self.mcmc_utils.score_coords, x2, args=(self.engine, self.engine.score),
                      method='Nelder-Mead')
         e3, x3 = self._extract_from_scipy_minimize(m)
         return e3, x3
@@ -81,22 +114,22 @@ class MCMCAlgorithm(object):
     def _extract_from_scipy_minimize(self, m):
 
         x3 = m.x
-        x3 = self.docking_utils.keep_bound(x3)
+        x3 = self.mcmc_utils.keep_bound(x3)
         e3 = m.fun
         return e3, x3
 
     def _minimize_lbfgsb(self, bounds, x2):
 
-        m = minimize(self.docking_utils.score_coords, x2, method='L-BFGS-B',
-                     jac=self.docking_utils.score_coords_jac,
-                     args=(self.engine, self.scoring_func), bounds=bounds, options={'maxiter': self.optim_iter})
+        m = minimize(self.mcmc_utils.score_coords, x2, method='L-BFGS-B',
+                     jac=self.mcmc_utils.score_coords_jac,
+                     args=(self.engine, self.engine.score), bounds=bounds, options={'maxiter': self.optim_iter})
         e3, x3 = self._extract_from_scipy_minimize(m)
         return e3, x3
 
     def generate_conformation(self, x1):
 
         for _ in range(self.mut_steps):
-            x2 = self.docking_utils.rand_mutate_big(x1.copy())
+            x2 = self.mcmc_utils.rand_mutate_big(x1.copy())
             c2 = self.engine.lig.mutate(x2)
         return c2, x2
 
