@@ -18,15 +18,17 @@ _ = list(map(lambda x: x.addh(only_polar=True), mols))
 
 def test_genetic_algorithm():
     """Checks, whether genetic algorithm is minimizing energy of protein-ligand complex."""
-    ga_params = {'n_population': 20, 'n_generations': 20, 'top_individuals': 2,
-                 'top_parents': 5, 'crossover_prob': 0.9, 'seed': 123}
-    docker = Dock(receptor, mols[:5], docking_type='GeneticAlgorithm', additional_params=ga_params)
+    ga_params = {'n_population': 50, 'n_generations': 20, 'top_individuals': 2,
+                 'top_parents': 10, 'crossover_prob': 0.9, 'seed': 123}
 
+    docker = Dock(receptor, mols[:5], docking_type='GeneticAlgorithm', additional_params=ga_params)
     init_scores = [engine.best_score for engine in docker.custom_engines]
-    docker.perform()
+    docker.dock()
     scores = [score for _, score in docker.output]
 
-    assert_array_less(scores, init_scores)
+    for scoring_func in ['interaction_energy', 'ri_score']:
+        assert_array_less(scores, init_scores, err_msg='Genetic algorithm with {} haven\'t reduced energy of '
+                                                       'complex'.format(scoring_func))
 
 
 def test_mcmc_score_nelder_mead():
@@ -34,29 +36,29 @@ def test_mcmc_score_nelder_mead():
     docker = Dock(receptor, mols[:5], docking_type='MCMC', additional_params=mcmc_params)
 
     init_scores = [engine.engine.score() for engine in docker.custom_engines]
-    docker.perform()
-    scores = [score for _, score in docker.output][0]
+    docker.dock()
+    scores = [score for _, score in docker.output]
 
-    assert_array_less(scores, init_scores)
+    assert_array_less(scores, init_scores, err_msg='MCMC algorithm haven\'t reduced energy of complex')
 
 
 def test_mcmc_score_simplex():
-    mcmc_params = {'optim': OptimizationMethod.SIMPLEX, 'optim_iter': 7, 'mc_steps': 50, 'mut_steps': 100, 'seed': 316815}
+    mcmc_params = {'optim': OptimizationMethod.SIMPLEX, 'optim_iter': 7, 'mc_steps': 200, 'mut_steps': 100, 'seed': 316815}
     docker = Dock(receptor, mols[:5], docking_type='MCMC', additional_params=mcmc_params)
 
     init_scores = [engine.engine.score() for engine in docker.custom_engines]
-    docker.perform()
-    scores = [score for _, score in docker.output][0]
+    docker.dock()
+    scores = [score for _, score in docker.output]
 
-    assert_array_less(scores, init_scores)
+    assert_array_less(scores, init_scores, err_msg='MCMC algorithm haven\'t reduced energy of complex')
 
 
 def test_mcmc_score_lbfgsb():
-    mcmc_params = {'optim': OptimizationMethod.LBFGSB, 'optim_iter': 7, 'mc_steps': 7, 'mut_steps': 100, 'seed': 316815}
+    mcmc_params = {'optim': OptimizationMethod.LBFGSB, 'optim_iter': 2, 'mc_steps': 15, 'mut_steps': 100, 'seed': 316815}
     docker = Dock(receptor, mols[:5], docking_type='MCMC', additional_params=mcmc_params)
 
     init_scores = [engine.engine.score() for engine in docker.custom_engines]
-    docker.perform()
+    docker.dock()
     scores = [score for _, score in docker.output]
 
-    assert_array_less(scores, init_scores)
+    assert_array_less(scores, init_scores, err_msg='MCMC algorithm haven\'t reduced energy of complex')
