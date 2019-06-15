@@ -1,3 +1,4 @@
+import oddt
 from joblib import Parallel, delayed
 from oddt.docking.AutodockVina import autodock_vina
 from oddt.docking.GeneticAlgorithm import GeneticAlgorithm
@@ -27,7 +28,7 @@ class Dock(object):
     receptor: Molecule or file name
         Protein object to be used while generating descriptors.
 
-    ligands: Molecule or list of them or sdf file name with ligands
+    ligands: Molecule or list of them or file name with ligands
         Molecules, to dock.
 
     docking_type: string
@@ -58,8 +59,14 @@ class Dock(object):
         self.scoring_function = scoring_func
         self.n_jobs = n_jobs
         self.output = []
-        if not isinstance(ligands, list):
-            self.ligands = [ligands]
+        if isinstance(ligands, str):
+            ligand_format = ligands.split('.')[-1]
+            try:
+                self.ligands = list(oddt.toolkit.readfile(ligand_format, ligands))
+            except ValueError:
+                raise Exception('Unsupported ligand file format.')
+        if not isinstance(self.ligands, list):
+            self.ligands = [self.ligands]
 
         if self.docking_type == 'AutodockVina':
             self.engine = autodock_vina(protein=receptor, **additional_params)
