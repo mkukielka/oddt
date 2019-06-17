@@ -25,13 +25,7 @@ class CustomEngine(object):
             self.receptor.removeh()
             self.set_protein(self.receptor)
         if lig:
-            if isinstance(lig, str):
-                ligand_format = lig.split('.')[-1]
-                try:
-                    self.ligand = list(oddt.toolkit.readfile(ligand_format, lig))
-                except ValueError:
-                    raise Exception('Unsupported ligand file format.')
-            elif isinstance(lig, oddt.toolkit.Molecule):
+            if isinstance(lig, oddt.toolkit.Molecule):
                 self.ligand = lig
             else:
                 raise Exception('Unsupported ligand format.')

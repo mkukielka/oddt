@@ -70,3 +70,6 @@ asv_bench/results/
 # testing artifacts
 tests/data/v*
 grid_test.sh
+
+# Pycharm
+.idea

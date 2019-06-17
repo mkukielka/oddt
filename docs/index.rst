@@ -210,6 +210,72 @@ Get all acceptor atoms:
     mol.atom_dict['isacceptor']
 
 
+Docking
+```````
+
+To perform a docking procedure we need receptor and liand/ligands. We can give it in two formats, as the files names or as oddt molecules.
+
+.. code-block:: python
+
+    receptor = 'receptor.pdb'
+    ligands = 'ligands.sdf'
+    #or
+    receptor = next(oddt.toolkit.readfile('pdb', 'receptor.pdb'))
+    ligands = list(oddt.toolkit.readfile('sdf', 'ligands.sdf'))
+
+Docking in ODDT can be carried out using three tools: Autodock Vina, genetic algorithm or Markov chains Monte Carlo.
+
+Autodock Vina
+-------------
+
+Autodock Vina is an external docking program. Function `dock()` will automatically write file with docked ligands and return list of ligand with assigned scores
+
+.. code-block:: python
+
+    docker = Dock(receptor, ligands, docking_type='AutodockVina')
+    scores = docker.dock()
+
+Genetic algorithm
+-----------------
+
+Docking using the genetic algorithm supports specifying additional parameters, such as:
+
+* '*n_population*', type: ``int`` - Population generated on every step
+* '*n_generations*', type: ``int`` - Number of generations (iterations)
+* '*top_individuals*', type: ``int`` - Number of top individuals to survive to next generation
+* '*top_parents*', type: ``int`` - Number of top parents, from which new generation would be generated
+* '*crossover_prob*', type: ``float`` - Probability of crossover between parents. Otherwise conformation is mutated
+Function `dock()` return list with ligands, new coordinates and scores. If the 'directory' is specified in the dock(), the ligands will be saved in pdbqt format in given directory.
+
+.. code-block:: python
+
+    ga_params = {'n_population': 50, 'n_generations': 50, 'top_individuals': 10,
+                 'top_parents': 10, 'crossover_prob': 0.9}
+    docker = Dock(receptor, ligands, docking_type='GeneticAlgorithm', additional_params=ga_params)
+    out = docker.dock(directory='output_files_directory')
+    scores = [score for _, score in out]
+
+Markov chains Monte Carlo
+------------------------
+
+Docking using the method Markov chains Monte Carlo supports specifying additional parameters, such as:
+
+* '*optim*', type: ``int`` - method of optimization (or SIMPLEX/NO_OPTIM if none) around locally chosen conformation point, must be one of the values in OptimizationMethod enumeration
+* '*optim_iter*', type: ``int`` - number of iterations for local optimization, in the scipy.optimize.minimize
+* '*mc_steps*', type: ``int`` - number of steps performed by the MCMC algorithm
+* '*mut_steps*', type: ``int`` - number of mutation steps (while choosing next random conformation)
+Function `dock()` return list with ligands, new coordinates and scores. If the 'directory' is specified in the dock(), the ligands will be saved in pdbqt format in given directory.
+
+.. code-block:: python
+
+    from oddt.docking.MCMCAlgorithm import OptimizationMethod
+
+    mcmc_params = {'optim': OptimizationMethod.NELDER_MEAD, 'optim_iter': 10, 'mc_steps': 50,
+                   'mut_steps': 100}
+    docker = Dock(receptor, ligands, docking_type='MCMC', additional_params=mcmc_params)
+    out = docker.dock(directory='output_files_directory')
+    scores = [score for _, score in out]
+
 Interaction Fingerprints
 ````````````````````````
 Module, where interactions between two molecules are calculated and stored in fingerprint.
